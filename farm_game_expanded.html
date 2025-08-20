@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>농장 게임 확장판 완전판</title>
+<style>
+body { font-family:sans-serif; margin:0; padding:0; background:#87ceeb; display:flex; flex-direction:column; align-items:center;}
+h1 { margin-top:20px; }
+#loginForm, #registerForm, #gameContainer { margin:20px; }
+input { margin:5px; padding:5px; font-size:14px; }
+button { padding:8px 12px; font-size:14px; margin:5px; cursor:pointer; border:none; border-radius:5px; background-color:#228B22; color:white; }
+button:hover { background-color:#2e8b57; }
+#farm { display:grid; grid-template-columns: repeat(auto-fit, minmax(80px,1fr)); gap:5px; max-width:800px; margin:20px; }
+.plot { width:100%; padding-top:100%; position:relative; background:#a0522d; cursor:pointer; overflow:hidden; }
+.plot .crop { position:absolute; top:10%; left:10%; width:80%; height:80%; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:12px; color:white; text-align:center; transition: all 0.5s ease; }
+.plot .golden { animation: glow 1s infinite alternate; }
+@keyframes glow { from {box-shadow:0 0 5px yellow;} to {box-shadow:0 0 20px orange;} }
+#inventory, #quests, #shop, #tools, #leaderboard, #bank, #achievements, #collection { margin:10px; padding:10px; border:1px solid #333; border-radius:8px; background:#f0f8ff; }
+#inventory span { margin-right:20px; }
+@media (max-width:600px){ .plot .crop { font-size:10px;} button { font-size:12px; padding:6px 10px; } }
+</style>
+</head>
+<body>
+
+<h1>🌾 농장 게임 완전판 🌾</h1>
+
+<div id="authContainer">
+  <div id="registerForm">
+    <h3>회원가입</h3>
+    <input type="text" id="regUser" placeholder="아이디">
+    <input type="password" id="regPass" placeholder="비밀번호">
+    <button id="registerBtn">회원가입</button>
+  </div>
+
+  <div id="loginForm">
+    <h3>로그인</h3>
+    <input type="text" id="loginUser" placeholder="아이디">
+    <input type="password" id="loginPass" placeholder="비밀번호">
+    <button id="loginBtn">로그인</button>
+  </div>
+</div>
+
+<div id="gameContainer" style="display:none;">
+  <div id="inventory">
+    <span>💰 돈: $<span id="money">200</span></span>
+    <span>⭐ 레벨: <span id="level">1</span></span>
+    <span>📈 경험치: <span id="exp">0</span></span>
+    <span>🌦 날씨: <span id="weather">맑음</span></span>
+    <button id="logoutBtn">로그아웃</button>
+  </div>
+
+  <div id="bank"><h3>은행</h3><button id="depositBtn">$50 예치</button><button id="withdrawBtn">$50 인출</button><span>잔액: $<span id="bankBalance">0</span></span></div>
+  <div id="shop"><h3>상점</h3></div>
+  <div id="tools"><h3>도구</h3></div>
+  <div id="quests"><h3>퀘스트</h3></div>
+  <div id="achievements"><h3>업적</h3></div>
+  <div id="collection"><h3>도감</h3></div>
+
+  <div>
+    <button id="expandBtn">땅 확장 ($50)</button>
+    <button id="sprinklerBtn">스프링클러 ($100)</button>
+    <button id="scarecrowBtn">허수아비 ($100)</button>
+  </div>
+
+  <div id="farm"></div>
+
+  <div id="leaderboard"><h3>랭킹보드</h3></div>
+</div>
+
+<script>
+let currentUser=null;
+let users=JSON.parse(localStorage.getItem("users")||"{}");
+let plots=[];
+let selectedSeed=null;
+let selectedTool=null;
+let weather="맑음";
+let quest=null;
+let bankBalance=0;
+
+const crops=[
+  {id:0,name:"감자",growth:5,price:20},
+  {id:1,name:"토마토",growth:7,price:35},
+  {id:2,name:"옥수수",growth:10,price:50},
+  {id:3,name:"수박",growth:15,price:100},
+  {id:4,name:"딸기",growth:6,price:40}
+];
+
+const tools=[
+  {id:0,name:"비료",effect:"fastGrow",durability:5},
+  {id:1,name:"가위",effect:"harvestBonus",durability:10},
+  {id:2,name:"농약",effect:"removeBug",durability:5}
+];
+
+const achievementsList=["첫 수확","레벨 5 달성","$500 달성"];
+
+// ===== 회원가입/로그인 =====
+document.getElementById('registerBtn').addEventListener('click',()=>{
+  const u=document.getElementById('regUser').value.trim();
+  const p=document.getElementById('regPass').value.trim();
+  if(!u||!p){ alert("아이디/비밀번호 입력"); return; }
+  if(users[u]){ alert("이미 존재하는 아이디"); return; }
+  users[u]={password:p,money:200,level:1,exp:0,plots:[],inventory:{seeds:{},tools:{}},bank:0,achievements:[],collection:[]};
+  localStorage.setItem("users",JSON.stringify(users));
+  alert("회원가입 완료!");
+});
+
+document.getElementById('loginBtn').addEventListener('click',()=>{
+  const u=document.getElementById('loginUser').value.trim();
+  const p=document.getElementById('loginPass').value.trim();
+  if(users[u]&&users[u].password===p){ currentUser=u; startGame(); }else alert("아이디/비밀번호 불일치");
+});
+
+document.getElementById('logoutBtn').addEventListener('click',()=>{
+  saveUserData();
+  currentUser=null;
+  document.getElementById('gameContainer').style.display='none';
+  document.getElementById('authContainer').style.display='block';
+});
+
+function startGame(){
+  document.getElementById('authContainer').style.display='none';
+  document.getElementById('gameContainer').style.display='block';
+  loadUserData();
+  initShop();
+  initTools();
+  initPlots();
+  generateQuest();
+  renderAchievements();
+  updateLeaderboard();
+}
+
+function loadUserData(){
+  const data=users[currentUser];
+  money=data.money; level=data.level; exp=data.exp; bankBalance=data.bank;
+  plots=data.plots.length>0?data.plots:[];
+  moneyEl.textContent=money; levelEl.textContent=level; expEl.textContent=exp; document.getElementById('bankBalance').textContent=bankBalance;
+}
+
+function saveUserData(){
+  if(!currentUser) return;
+  users[currentUser].money=money; users[currentUser].level=level; users[currentUser].exp=exp;
+  users[currentUser].plots=plots; users[currentUser].bank=bankBalance;
+  localStorage.setItem("users",JSON.stringify(users)); updateLeaderboard();
+}
+
+const moneyEl=document.getElementById("money"), levelEl=document.getElementById("level"), expEl=document.getElementById("exp"), weatherEl=document.getElementById("weather");
+
+function initPlots(){
+  const farm=document.getElementById('farm'); farm.innerHTML='';
+  if(plots.length===0) for(let i=0;i<5;i++) plots.push({status:"empty",crop:null,timer:0,hasBug:false});
+  plots.forEach((plot,idx)=>{
+    const div=document.createElement('div'); div.className='plot'; div.dataset.id=idx;
+    div.addEventListener('click',()=>handlePlot(idx)); farm.appendChild(div); updatePlot(div,plot);
+  });
+}
+function updatePlot(div,plot){
+  div.innerHTML=''; if(plot.status==="planted"){
+    const cropDiv=document.createElement('div'); cropDiv.className='crop';
+    cropDiv.style.backgroundColor=plot.hasBug?'red':(plot.quality==='golden'?'gold':'green');
+    if(plot.quality==='golden') cropDiv.classList.add('golden');
+    cropDiv.textContent=`${plot.crop.name} ${Math.floor(plot.timer)}/${plot.crop.growth}`;
+    div.appendChild(cropDiv);
+  }
+}
+
+function initShop(){
+  const shop=document.getElementById('shop'); shop.innerHTML="<h3>상점</h3>";
+  crops.forEach(c=>{
+    const btn=document.createElement('button'); btn.textContent=`${c.name} 씨앗 구매 ($${c.price})`;
+    btn.addEventListener('click',()=>{ if(money>=c.price){ money-=c.price; users[currentUser].inventory.seeds[c.id]=(users[currentUser].inventory.seeds[c.id]||0)+1; moneyEl.textContent=money;}else alert("돈 부족!"); });
+    shop.appendChild(btn);
+  });
+}
+
+function initTools(){
+  const toolDiv=document.getElementById('tools'); toolDiv.innerHTML="<h3>도구</h3>";
+  tools.forEach(t=>{
+    const btn=document.createElement('button'); btn.textContent=`${t.name} ($${t.id+20})`;
+    btn.addEventListener('click',()=>{ if(money>=(t.id+20)){ money-=(t.id+20); users[currentUser].inventory.tools[t.id]=(users[currentUser].inventory.tools[t.id]||0)+t.durability; moneyEl.textContent=money; }});
+    toolDiv.appendChild(btn);
+  });
+}
+
+function handlePlot(idx){
+  const plot=plots[idx];
+  for(let sid in users[currentUser].inventory.seeds){
+    if(plot.status==="empty" && users[currentUser].inventory.seeds[sid]>0){
+      const c=crops.find(x=>x.id==sid); plot.status="planted"; plot.crop=Object.assign({},c); plot.timer=0; plot.hasBug=false;
+      if(Math.random()<0.05) plot.quality='golden'; else plot.quality='normal';
+      users[currentUser].inventory.seeds[sid]--; updatePlot(document.querySelector(`.plot[data-id='${idx}']`),plot);
+      break;
+    }
+  }
+  if(plot.status==="planted" && plot.timer>=plot.crop.growth){
+    let earn=plot.crop.price; if(plot.quality==='golden') earn*=3;
+    money+=earn; exp+=10; checkLevelUp(); moneyEl.textContent=money; expEl.textContent=exp;
+    plot.status="empty"; plot.crop=null; plot.timer=0; plot.hasBug=false; plot.quality=null; updatePlot(document.querySelector(`.plot[data-id='${idx}']`),plot);
+    updateCollection(plot.crop);
+  }
+}
+
+function checkLevelUp(){ if(exp>=level*50){ exp=0; level++; alert(`레벨업! 현재 레벨 ${level}`); renderAchievements(); } }
+function updateCollection(crop){ if(!users[currentUser].collection.includes(crop.name)) users[currentUser].collection.push(crop.name); renderCollection(); }
+function renderCollection(){ const col=document.getElementById('collection'); col.innerHTML="<h3>도감</h3>"+users[currentUser].collection.join(', '); }
+function renderAchievements(){ const ach=document.getElementById('achievements'); ach.innerHTML="<h3>업적</h3>"+achievementsList.map(a=>users[currentUser].achievements.includes(a)?`✔ ${a}`:`❌ ${a}`).join('<br>'); }
+
+function generateQuest(){ const c=crops[Math.floor(Math.random()*crops.length)]; quest={crop:c,amount:3,reward:100}; renderQuest(); }
+function renderQuest(){ const qDiv=document.getElementById('quests'); qDiv.innerHTML=`<h3>퀘스트</h3>${quest.crop.name} ${quest.amount}개 수확 → 보상 $${quest.reward}`; }
+
+document.getElementById('expandBtn').addEventListener('click',()=>{ if(money>=50){ money-=50; moneyEl.textContent=money; plots.push({status:"empty",crop:null,timer:0,hasBug:false}); initPlots(); }else alert("돈 부족!"); });
+
+setInterval(()=>{
+  if(!currentUser) return;
+  plots.forEach((plot,idx)=>{
+    if(plot.status==="planted"){
+      let growSpeed=1; if(weather==="비") growSpeed=2; if(weather==="가뭄") growSpeed=0.5;
+      plot.timer+=growSpeed; if(!plot.hasBug && Math.random()<0.01) plot.hasBug=true;
+      updatePlot(document.querySelector(`.plot[data-id='${idx}']`),plot);
+    }
+  }); saveUserData();
+},1000);
+
+function updateLeaderboard(){ const board=document.getElementById('leaderboard'); let leaderboard=Object.keys(users).map(u=>{ return {username:u,money:users[u].money,level:users[u].level}; }).sort((a,b)=>b.money-a.money); board.innerHTML="<h3>랭킹보드</h3>"+leaderboard.map(u=>`<div>${u.username}: $${u.money} (Lv.${u.level})</div>`).join(''); }
+
+function updateWeather(){ const roll=Math.random(); weather=roll<0.7?"맑음":(roll<0.85?"비":"가뭄"); weatherEl.textContent=weather; }
+setInterval(updateWeather,30000);
+</script>
+
+</body>
+</html>
